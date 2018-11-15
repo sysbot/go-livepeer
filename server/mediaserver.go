@@ -109,6 +109,7 @@ func (s *LivepeerServer) StartMediaServer(ctx context.Context, maxPricePerSegmen
 
 	//LPMS handlers for handling RTMP video
 	s.LPMS.HandleRTMPPublish(createRTMPStreamIDHandler(s), gotRTMPStreamHandler(s), endRTMPStreamHandler(s))
+	s.LPMS.HandleRHandleRTMPPublishTMPPublish(createRTMPStreamIDHandler(s), gotRTMPStreamHandler(s), endRTMPStreamHandler(s))
 	s.LPMS.HandleRTMPPlay(getRTMPStreamHandler(s))
 
 	//LPMS hanlder for handling HLS video play
@@ -234,7 +235,7 @@ func gotRTMPStreamHandler(s *LivepeerServer) func(url *url.URL, rtmpStrm stream.
 			}
 
 			getReusableBroadcast := func(b *common.DBJob) (*ethTypes.Job, bool) {
-				job := common.DBJobToEthJob(b)
+				// job := common.DBJobToEthJob(b) // ANGIE - NEED TO REPLACE THIS WITH SOMETHING ELSE ... JOB IS USED THROUGHOUT THIS FUNCTION & FILE
 
 				// Transcoder must still be registered
 				if t, err := s.LivepeerNode.Eth.GetTranscoder(b.Transcoder); err != nil || t.Status == "Not Registered" {
@@ -329,7 +330,7 @@ func gotRTMPStreamHandler(s *LivepeerServer) func(url *url.URL, rtmpStrm stream.
 		//Segment the stream, insert the segments into the broadcaster
 		go func(rtmpStrm stream.RTMPVideoStream) {
 			hlsStrm := stream.NewBasicHLSVideoStream(string(hlsStrmID), stream.DefaultHLSStreamWin)
-			hlsStrm.SetSubscriber(func(seg *stream.HLSSegment, eof bool) {
+			hlsStrm.SetSubscriber(func(seg *stream.HLSSegment, eof bool) { //ANGIE - everytime a segment is inserted, we do this function
 				if eof {
 					// XXX update HLS manifest
 					return
@@ -355,7 +356,7 @@ func gotRTMPStreamHandler(s *LivepeerServer) func(url *url.URL, rtmpStrm stream.
 
 				seg.Name = "" // hijack seg.Name to convey the uploaded URI
 				name := fmt.Sprintf("%s/%d.ts", vProfile.Name, seg.SeqNo)
-				uri, err := cpl.GetOSSession().SaveData(name, seg.Data)
+				uri, err := cpl.GetOSSession().SaveData(name, seg.Data) /// ANGIE - inserting segment into playlist
 				if err != nil {
 					glog.Errorf("Error saving segment %d: %v", seg.SeqNo, err)
 					if monitor.Enabled {
@@ -377,7 +378,7 @@ func gotRTMPStreamHandler(s *LivepeerServer) func(url *url.URL, rtmpStrm stream.
 				if rpcBcast != nil {
 					go func() {
 						// storage the orchestrator prefers
-						if ios := rpcBcast.GetOrchestratorOS(); ios != nil {
+						if ios := rpcBcast.GetOrchestratorOS(); ios != nil { // ANGIE - send to orchestrator
 							// XXX handle case when orch expects direct upload
 							uri, err := ios.SaveData(name, seg.Data)
 							if err != nil {
@@ -522,7 +523,8 @@ func gotRTMPStreamHandler(s *LivepeerServer) func(url *url.URL, rtmpStrm stream.
 		if jobId == nil && s.LivepeerNode.Eth != nil {
 			//Create Transcode Job Onchain
 			go func() {
-				job, err := s.LivepeerNode.CreateTranscodeJob(hlsStrmID, BroadcastJobVideoProfiles, BroadcastPrice)
+				// job, err := s.LivepeerNode.CreateTranscodeJob(hlsStrmID, BroadcastJobVideoProfiles, BroadcastPrice) ///
+				// ANGIE - NEEDS TO BE REPLACED WITH SOMETHING ELSE
 				if err != nil {
 					return // XXX feed back error?
 				}

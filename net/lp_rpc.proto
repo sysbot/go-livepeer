@@ -20,7 +20,7 @@ message PingPong {
 message TranscoderRequest {
 
   // ID of the job that the broadcaster needs a transcoder for
-  int64 jobId = 1;
+  int64 jobId = 1; // ANGIE - CHANGE THIS! 
 
   // Broadcaster's signature over the jobId
   bytes sig   = 2;

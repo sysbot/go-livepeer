@@ -189,52 +189,6 @@ func monitorChan(intChan chan int) {
 	}
 }
 
-func TestCreateTranscodeJob(t *testing.T) {
-	seth := &eth.StubClient{JobsMap: make(map[string]*lpTypes.Job)}
-	n, _ := NewLivepeerNode(seth, "./tmp", nil)
-	j := StubJob(n)
-	seth.JobsMap[j.StreamId] = j
-
-	cjt := func(n *LivepeerNode) (*lpTypes.Job, error) {
-		return n.CreateTranscodeJob(StreamID(j.StreamId), j.Profiles, j.MaxPricePerSegment)
-	}
-	seth.TranscoderAddress = ethcommon.BytesToAddress([]byte("Job Transcoder Addr"))
-
-	// test success
-	if _, err := cjt(n); err != nil {
-		t.Error("Error creating transcode job ", err)
-	}
-	if j.TranscoderAddress != seth.TranscoderAddress {
-		t.Error("Did not have expected transcoder assigned ", j.TranscoderAddress)
-	}
-
-	// test missing eth client
-	n1, _ := NewLivepeerNode(nil, "./tmp", nil)
-	if _, err := cjt(n1); err != ErrNotFound {
-		t.Error("Did not receive expected error; got ", err)
-	}
-
-	// test various error conditions from ethclient
-
-	seth.LatestBlockError = fmt.Errorf("LatestBlockError")
-	if _, err := cjt(n); err != seth.LatestBlockError {
-		t.Error("Did not receive expected error; got ", err)
-	}
-	seth.LatestBlockError = nil
-
-	seth.JobError = fmt.Errorf("JobError")
-	if _, err := cjt(n); err != seth.JobError {
-		t.Error("Did not receive expeced error; got ", err)
-	}
-	seth.JobError = nil
-
-	seth.WatchJobError = fmt.Errorf("WatchJobError")
-	if _, err := cjt(n); err != seth.WatchJobError {
-		t.Error("Did not receive expected error; got ", err)
-	}
-	seth.WatchJobError = nil
-}
-
 func TestCrypto(t *testing.T) {
 	blkNumB := make([]byte, 8)
 	binary.BigEndian.PutUint64(blkNumB, uint64(9994353847340985734))

@@ -47,9 +47,8 @@ type Orchestrator interface {
 	Address() ethcommon.Address
 	Sign([]byte) ([]byte, error)
 	CurrentBlock() *big.Int
-	GetJob(int64) (*lpTypes.Job, error)
-	TranscodeSeg(*lpTypes.Job, *core.SignedSegment) (*core.TranscodeResult, error)
-	StreamIDs(*lpTypes.Job) ([]core.StreamID, error)
+	TranscodeSeg(int64, *core.SignedSegment) (*core.TranscodeResult, error)
+	StreamIDs(*lpTypes.Job) ([]core.StreamID, error) // ANGIE - THIS NEEDS TO BE EDITED. WE MIGHT NEED TO GET STREAMIDS ELSEWHERE
 }
 
 type Broadcaster interface {
@@ -148,14 +147,11 @@ func verifyMsgSig(addr ethcommon.Address, msg string, sig []byte) bool {
 }
 
 func verifyTranscoderReq(orch Orchestrator, req *net.TranscoderRequest, job *lpTypes.Job) error {
-	if orch.Address() != job.TranscoderAddress {
+	if orch.Address() != job.TranscoderAddress { // ANGIE - NEED TO GET TRANSCODER AND BROADCASTER ADDRESS FROM SOMEWHERE ELSE
 		glog.Error("Transcoder was not assigned")
 		return fmt.Errorf("Transcoder was not assigned")
 	}
-	if !jobClaimable(orch, job) {
-		glog.Error(JobOutOfRangeError)
-		return fmt.Errorf(JobOutOfRangeError)
-	}
+
 	if !verifyMsgSig(job.BroadcasterAddress, fmt.Sprintf("%v", job.JobId), req.Sig) {
 		glog.Error("transcoder req sig check failed")
 		return fmt.Errorf("transcoder req sig check failed")
@@ -163,7 +159,7 @@ func verifyTranscoderReq(orch Orchestrator, req *net.TranscoderRequest, job *lpT
 	return nil
 }
 
-func genToken(orch Orchestrator, job *lpTypes.Job) (string, error) {
+func genToken(orch Orchestrator, job *lpTypes.Job) (string, error) { // ANGIE - NEED TO GET JOBID FROM ELSEWHERE
 	sig, err := orch.Sign([]byte(fmt.Sprintf("%v", job.JobId)))
 	if err != nil {
 		return "", err
@@ -176,7 +172,7 @@ func genToken(orch Orchestrator, job *lpTypes.Job) (string, error) {
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
-func verifyToken(orch Orchestrator, creds string) (*lpTypes.Job, error) {
+func verifyToken(orch Orchestrator, creds string) (int64, error) {
 	buf, err := base64.StdEncoding.DecodeString(creds)
 	if err != nil {
 		glog.Error("Unable to base64-decode ", err)
@@ -188,20 +184,13 @@ func verifyToken(orch Orchestrator, creds string) (*lpTypes.Job, error) {
 		glog.Error("Unable to unmarshal ", err)
 		return nil, err
 	}
+
 	if !verifyMsgSig(orch.Address(), fmt.Sprintf("%v", token.JobId), token.Sig) {
 		glog.Error("Sig check failed")
 		return nil, fmt.Errorf("Token sig check failed")
 	}
-	job, err := orch.GetJob(token.JobId)
-	if err != nil || job == nil {
-		glog.Error("Could not get job ", err)
-		return nil, fmt.Errorf("Missing job (%s)", err.Error())
-	}
-	if !jobClaimable(orch, job) {
-		glog.Errorf("Job %v too early or expired", job.JobId)
-		return nil, fmt.Errorf(JobOutOfRangeError)
-	}
-	return job, nil
+
+	return token.JobId, nil
 }
 
 func genSegCreds(bcast Broadcaster, streamId string, segData *net.SegData) (string, error) {
@@ -223,7 +212,7 @@ func genSegCreds(bcast Broadcaster, streamId string, segData *net.SegData) (stri
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
-func verifySegCreds(job *lpTypes.Job, segCreds string) (*net.SegData, error) {
+func verifySegCreds(orch Orchestrator, segCreds string) (*net.SegData, error) {
 	buf, err := base64.StdEncoding.DecodeString(segCreds)
 	if err != nil {
 		glog.Error("Unable to base64-decode ", err)
@@ -236,14 +225,11 @@ func verifySegCreds(job *lpTypes.Job, segCreds string) (*net.SegData, error) {
 		return nil, err
 	}
 	seg := &lpTypes.Segment{
-		StreamID:              job.StreamId,
+		StreamID:              orch.StreamIds(),
 		SegmentSequenceNumber: big.NewInt(segData.Seq),
 		DataHash:              ethcommon.BytesToHash(segData.Hash),
 	}
-	if !verifyMsgSig(job.BroadcasterAddress, string(seg.Flatten()), segData.Sig) {
-		glog.Error("Sig check failed")
-		return nil, fmt.Errorf("Segment sig check failed")
-	}
+
 	return &segData, nil
 }
 
@@ -258,7 +244,7 @@ func ping(context context.Context, req *net.PingPong, orch Orchestrator) (*net.P
 }
 
 func getTranscoder(context context.Context, orch Orchestrator, req *net.TranscoderRequest) (*net.TranscoderInfo, error) {
-	glog.Info("Got transcoder request for job ", req.JobId)
+	glog.Info("Got transcoder request for job ", req.JobId) // ANGIE - GET JOB/STREAMIDS FROM ELSEWHERE
 	job, err := orch.GetJob(req.JobId)
 	if err != nil {
 		glog.Error("Unable to get job ", err)
@@ -312,7 +298,8 @@ func (h *lphttp) ServeSegment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	job, err := verifyToken(orch, creds)
+
+	jobId, err := verifyToken(orch, creds)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
@@ -320,7 +307,8 @@ func (h *lphttp) ServeSegment(w http.ResponseWriter, r *http.Request) {
 
 	// check the segment sig from the broadcaster
 	seg := r.Header.Get("Livepeer-Segment")
-	segData, err := verifySegCreds(job, seg)
+
+	segData, err := verifySegCreds(orch, seg) // ANGIE : NEED BROADCASTER ADDRESS FROM PM
 	if err != nil {
 		glog.Error("Could not verify segment creds")
 		http.Error(w, err.Error(), http.StatusForbidden)
@@ -380,17 +368,12 @@ func (h *lphttp) ServeSegment(w http.ResponseWriter, r *http.Request) {
 		OS:  prefOS,
 	}
 
-	res, err := orch.TranscodeSeg(job, &ss)
-
-	// sanity check
-	if err == nil && len(res.Data) != len(job.Profiles) {
-		err = fmt.Errorf("Mismatched result lengths")
-	}
+	res, err := orch.TranscodeSeg(jobId, &ss)
 
 	// Upload to OS and construct segment result set
 	var segments []*net.TranscodedSegmentData
 	for i := 0; err == nil && i < len(res.Data); i++ {
-		name := fmt.Sprintf("%s/%d.ts", job.Profiles[i].Name, segData.Seq)
+		name := fmt.Sprintf("%s/%d.ts", job.Profiles[i].Name, segData.Seq) // ANGIE - NEED TO EDIT OUT JOB PROFILES
 		uri, err := res.OS.SaveData(name, res.Data[i])
 		if err != nil {
 			glog.Error("Could not upload segment ", segData.Seq)
