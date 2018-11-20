@@ -27,6 +27,8 @@ import (
 
 const TranscodeLoopTimeout = 10 * time.Minute
 
+var profiles = []ffmpeg.VideoProfile{ffmpeg.P144p30fps16x9, ffmpeg.P240p30fps16x9} // ANGIE - MUST REMOVE THIS ONCE PROFILES IN JOB
+
 // Transcoder / orchestrator RPC interface implementation
 type orchestrator struct {
 	address ethcommon.Address
@@ -56,11 +58,11 @@ func (orch *orchestrator) Address() ethcommon.Address {
 	return orch.address
 }
 
-func (orch *orchestrator) StreamIDs(job *ethTypes.Job) ([]StreamID, error) { // ANGIE - NEED TO CHANGE THIS TO NOT TAKE JOB ... MAYBE DELETE THIS COMPLETELY
-	streamIds := make([]StreamID, len(job.Profiles))
-	sid := StreamID(job.StreamId)
+func (orch *orchestrator) StreamIDs(jobId string) ([]StreamID, error) {
+	streamIds := make([]StreamID, len(profiles))
+	sid := StreamID(jobId)
 	vid := sid.GetVideoID()
-	for i, p := range job.Profiles {
+	for i, p := range profiles {
 		strmId, err := MakeStreamID(vid, p.Name)
 		if err != nil {
 			glog.Error("Error making stream ID: ", err)
@@ -103,10 +105,8 @@ type SegChanData struct {
 type SegmentChan chan *SegChanData
 
 type transcodeConfig struct {
-	StrmID string
-	// Profiles      []ffmpeg.VideoProfile
 	ResultStrmIDs []StreamID
-	JobID         *big.Int // ANGIE - WE'LL HAVE TO DELETE EITHER STREAMIDS OR JOBID
+	JobID         string // ANGIE - WE'LL HAVE TO DELETE EITHER STREAMIDS OR JOBID
 	Transcoder    transcoder.Transcoder
 	OS            drivers.OSSession
 }
@@ -179,7 +179,7 @@ func (n *LivepeerNode) transcodeAndCacheSeg(config transcodeConfig, ss *SignedSe
 		return terr(err)
 	}
 
-	transcodeStart := time.Now().UTC()
+	// transcodeStart := time.Now().UTC()
 	// Ensure length matches expectations. 4 second + 25% wiggle factor, 60fps
 
 	//Do the transcoding
@@ -189,7 +189,7 @@ func (n *LivepeerNode) transcodeAndCacheSeg(config transcodeConfig, ss *SignedSe
 		glog.Errorf("Error transcoding seg: %v - %v", seg.Name, err)
 		return terr(err)
 	}
-	transcodeEnd := time.Now().UTC()
+	// transcodeEnd := time.Now().UTC()
 	if len(tData) != len(config.ResultStrmIDs) {
 		glog.Errorf("Did not receive the correct number of transcoded segments; got %v expected %v", len(tData), len(config.ResultStrmIDs))
 		return terr(fmt.Errorf("MismatchedSegments"))
@@ -204,7 +204,7 @@ func (n *LivepeerNode) transcodeAndCacheSeg(config transcodeConfig, ss *SignedSe
 			glog.Errorf("Cannot find transcoded segment for %v", seg.SeqNo)
 			continue
 		}
-		tProfileData[config.Profiles[i]] = tData[i]
+		tProfileData[profiles[i]] = tData[i] // ANGIE - PROFILES MUST BE REPLACED HERE
 		tr.Data = append(tr.Data, tData[i])
 	}
 	os.Remove(fname)
@@ -213,13 +213,12 @@ func (n *LivepeerNode) transcodeAndCacheSeg(config transcodeConfig, ss *SignedSe
 }
 
 func (n *LivepeerNode) transcodeSegmentLoop(jobId int64, osInfo *net.OSInfo, segChan SegmentChan) error {
-	glog.V(common.DEBUG).Info("Starting transcode segment loop for ", job.StreamId) // ANGIE - NO STREAMID ?
-	if err != nil {
-		return err
-	}
-	resultStrmIDs := make([]StreamID, len(job.Profiles), len(job.Profiles)) // ANGIE - NEED TO FIGURE OUT WHAT TO USE INSTEAD OF PROFILES, AND WHETHER TO USE JOBID HERE
-	sid := StreamID(job.StreamId)
-	for i, vp := range job.Profiles {
+	glog.V(common.DEBUG).Info("Starting transcode segment loop for ", jobId)        // ANGIE - NO STREAMID ?
+	profiles := []ffmpeg.VideoProfile{ffmpeg.P144p30fps16x9, ffmpeg.P240p30fps16x9} // ANGIE - NEED TO FIGURE OUT WHAT TO USE INSTEAD OF PROFILES, AND WHETHER TO USE JOBID HERE
+	resultStrmIDs := make([]StreamID, len(profiles), len(profiles))
+
+	sid := StreamID(jobId)
+	for i, vp := range profiles {
 		strmID, err := MakeStreamID(sid.GetVideoID(), vp.Name)
 		if err != nil {
 			glog.Error("Error making stream ID: ", err)
@@ -227,6 +226,13 @@ func (n *LivepeerNode) transcodeSegmentLoop(jobId int64, osInfo *net.OSInfo, seg
 		}
 		resultStrmIDs[i] = strmID
 	}
+
+	strmID, err := MakeStreamID(sid.GetVideoID(), "360p")
+	if err != nil {
+		glog.Error("Error making stream ID: ", err)
+		return err
+	}
+	resultStrmIDs[1] = strmID
 
 	// determine appropriate OS to use
 	os := drivers.NewSession(osInfo)
@@ -242,12 +248,10 @@ func (n *LivepeerNode) transcodeSegmentLoop(jobId int64, osInfo *net.OSInfo, seg
 		os = drivers.NodeStorage.NewSession(string(mid))
 	}
 
-	tr := transcoder.NewFFMpegSegmentTranscoder(job.Profiles, n.WorkDir)
+	tr := transcoder.NewFFMpegSegmentTranscoder(profiles, n.WorkDir) // ANGIE - FIX PROFILES
 	config := transcodeConfig{
-		StrmID:        job.StreamId,
-		Profiles:      job.Profiles, // ANGIE - JOB PROFILES X
 		ResultStrmIDs: resultStrmIDs,
-		JobID:         jobId,
+		JobID:         string(jobId),
 		Transcoder:    tr,
 		OS:            os,
 	}

@@ -3,22 +3,13 @@ package core
 import (
 	"errors"
 	"fmt"
-	"math/big"
 	"net/http"
-	"time"
 
 	"github.com/livepeer/go-livepeer/drivers"
 
-	"github.com/cenkalti/backoff"
-	"github.com/golang/glog"
-
-	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 
-	"github.com/livepeer/go-livepeer/common"
-	ethTypes "github.com/livepeer/go-livepeer/eth/types"
 	"github.com/livepeer/go-livepeer/net"
-	ffmpeg "github.com/livepeer/lpms/ffmpeg"
 )
 
 var ErrNotFound = errors.New("ErrNotFound")
@@ -28,7 +19,7 @@ var ErrNotFound = errors.New("ErrNotFound")
 type broadcaster struct {
 	node  *LivepeerNode
 	httpc *http.Client
-	job   *ethTypes.Job // ANGIE - DO WE GET RID OF JOBS HERE AS WELL?
+	jobId string // ANGIE - DO WE GET RID OF JOBS HERE AS WELL?
 	tinfo *net.TranscoderInfo
 	ios   drivers.OSSession
 	oos   drivers.OSSession
@@ -52,8 +43,8 @@ func (bcast *broadcaster) Sign(msg []byte) ([]byte, error) {
 	}
 	return bcast.node.Eth.Sign(crypto.Keccak256(msg))
 }
-func (bcast *broadcaster) Job() *ethTypes.Job {
-	return bcast.job
+func (bcast *broadcaster) JobId() string {
+	return bcast.jobId
 }
 func (bcast *broadcaster) GetHTTPClient() *http.Client {
 	return bcast.httpc
@@ -67,9 +58,9 @@ func (bcast *broadcaster) GetTranscoderInfo() *net.TranscoderInfo {
 func (bcast *broadcaster) SetTranscoderInfo(t *net.TranscoderInfo) {
 	bcast.tinfo = t
 }
-func NewBroadcaster(node *LivepeerNode, job *ethTypes.Job) *broadcaster {
+func NewBroadcaster(node *LivepeerNode, jobId string) *broadcaster {
 	return &broadcaster{
-		node: node,
-		job:  job,
+		node:  node,
+		jobId: jobId,
 	}
 }
